@@ -64,12 +64,52 @@ jobs:
 
       - name: Fund deployer wallet
         run: |
-          for i in 1 2 3 4 5; do
-            echo "Airdrop attempt $i..."
-            result=$(solana airdrop 2 2>&1) && echo "$result" && break || echo "Failed: $result"
-            sleep 10
+          WALLET=$(solana address)
+          echo "Funding wallet: $WALLET"
+          
+          # Try multiple times with delays
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            echo "Airdrop attempt $i (2 SOL)..."
+            if solana airdrop 2 2>&1 | grep -q "SOL"; then
+              echo "✅ Got 2 SOL!"
+              solana airdrop 2 2>&1 || true
+              break
+            fi
+            echo "Waiting 15s before retry..."
+            sleep 15
           done
-          echo "Balance: $(solana balance)"
+          
+          echo "Final balance: $(solana balance)"
+          
+          # If still 0, try requesting via web3.js with exponential backoff
+          BALANCE=$(solana balance | grep -oP '[0-9.]+ SOL' | head -1)
+          if [ "$BALANCE" = "0 SOL" ] || [ -z "$BALANCE" ]; then
+            echo "Trying alternative airdrop method..."
+            node -e "
+              const {Connection, PublicKey, LAMPORTS_PER_SOL} = require('@solana/web3.js');
+              const conn = new Connection('https://api.devnet.solana.com', {commitment:'confirmed'});
+              const addr = new PublicKey('$WALLET');
+              
+              async function tryAirdrop() {
+                for (let i=0; i<10; i++) {
+                  try {
+                    const sig = await conn.requestAirdrop(addr, 2*LAMPORTS_PER_SOL);
+                    await conn.confirmTransaction(sig);
+                    const bal = await conn.getBalance(addr);
+                    console.log('Got SOL! Balance:', bal/LAMPORTS_PER_SOL);
+                    return true;
+                  } catch(e) {
+                    console.log('Try', i+1, 'failed:', e.message.substring(0,60));
+                    await new Promise(r=>setTimeout(r, 5000*(i+1)));
+                  }
+                }
+                return false;
+              }
+              tryAirdrop().then(ok => { if (!ok) process.exit(0); });
+            "
+          fi
+          
+          echo "Final balance: $(solana balance)"
 
       - name: Deploy program to devnet
         run: |

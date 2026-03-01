@@ -1,0 +1,22 @@
+[package]
+name = "job-queue"
+version = "0.1.0"
+description = "On-chain job queue program for Solana - reimagines Redis/BullMQ/SQS as an on-chain state machine"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "job_queue"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31.1"
+
+[dev-dependencies]

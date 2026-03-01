@@ -1,0 +1,13 @@
+.anchor
+.DS_Store
+target/
+node_modules/
+app/node_modules/
+app/build/
+dist/
+.env
+*.log
+
+# IDL secrets
+.secret
+id.json

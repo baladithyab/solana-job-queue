@@ -1,0 +1,74 @@
+name: Deploy to Devnet
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor avm --force
+          avm install 0.31.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build program
+        run: cargo-build-sbf --tools-version v1.52 --manifest-path programs/job-queue/Cargo.toml
+
+      - name: Build IDL
+        run: anchor idl build -o target/idl/job_queue.json
+
+      - name: Setup Solana keypair
+        run: |
+          mkdir -p ~/.config/solana
+          echo '${{ secrets.DEPLOYER_KEYPAIR }}' > ~/.config/solana/id.json
+          solana config set --url devnet
+
+      - name: Airdrop SOL
+        run: |
+          solana airdrop 2 || true
+          sleep 5
+          solana airdrop 2 || true
+          sleep 5
+          solana balance
+
+      - name: Deploy program
+        run: |
+          solana program deploy \
+            --program-id target/deploy/job_queue-keypair.json \
+            target/deploy/job_queue.so \
+            --url devnet
+          echo "PROGRAM_ID=$(solana-keygen pubkey target/deploy/job_queue-keypair.json)" >> $GITHUB_ENV
+
+      - name: Verify deployment
+        run: |
+          solana program show $PROGRAM_ID --url devnet
+          echo "Deployed to: $PROGRAM_ID"
+
+      - name: Run integration test (devnet)
+        env:
+          ANCHOR_PROVIDER_URL: https://api.devnet.solana.com
+          ANCHOR_WALLET: ~/.config/solana/id.json
+        run: |
+          npx ts-mocha -p ./tsconfig.json -t 120000 tests/job-queue.ts 2>&1 | tail -30
